@@ -976,7 +976,7 @@
                 <button class="btn btn-primary" id="submitBtn">提交出勤记录</button>
             </div>
             <div class="teacher-entry">
-                <a href="#" id="teacherEntry">📊 教师管理入口</a>
+                <a href="#" id="teacherEntry" title="需要密码才能进入">🔒 教师管理入口</a>
             </div>
         </div>
     </div>
@@ -1422,11 +1422,76 @@
         }
 
         // ============== 教师管理 ==============
+        // 教师密码（可在源码中修改）
+        const TEACHER_PASSWORD = 'wlin1997';
+        const MAX_PWD_ATTEMPTS = 3;
+        const LOCKOUT_MINUTES = 5;
 
-        // 打开教师管理
+        // 检查是否处于锁定状态
+        function checkLockout() {
+            const lockUntil = localStorage.getItem('teacherLockUntil');
+            if (lockUntil && Date.now() < parseInt(lockUntil)) {
+                const remain = Math.ceil((parseInt(lockUntil) - Date.now()) / 60000);
+                return remain;
+            }
+            return 0;
+        }
+
+        // 记录失败尝试
+        function recordFailedAttempt() {
+            const key = 'teacherPwdFails';
+            const fails = parseInt(localStorage.getItem(key) || '0') + 1;
+            localStorage.setItem(key, fails.toString());
+            if (fails >= MAX_PWD_ATTEMPTS) {
+                const lockUntil = Date.now() + LOCKOUT_MINUTES * 60 * 1000;
+                localStorage.setItem('teacherLockUntil', lockUntil.toString());
+                localStorage.setItem(key, '0');
+            }
+            return MAX_PWD_ATTEMPTS - fails;
+        }
+
+        // 重置失败计数
+        function resetFailedAttempts() {
+            localStorage.removeItem('teacherPwdFails');
+            localStorage.removeItem('teacherLockUntil');
+        }
+
+        // 打开教师管理（需密码）
         function openTeacherModal() {
-            renderTeacherPanel();
-            document.getElementById('teacherModal').classList.add('active');
+            // 1. 检查锁定
+            const lockRemain = checkLockout();
+            if (lockRemain > 0) {
+                alert('🔒 密码错误次数过多，已锁定。\n请 ' + lockRemain + ' 分钟后再试。');
+                return;
+            }
+
+            // 2. 检查是否已解锁（同一会话内免输入）
+            if (sessionStorage.getItem('teacherUnlocked') === 'yes') {
+                renderTeacherPanel();
+                document.getElementById('teacherModal').classList.add('active');
+                return;
+            }
+
+            // 3. 弹出密码输入
+            const remain = parseInt(localStorage.getItem('teacherPwdFails') || '0');
+            const left = MAX_PWD_ATTEMPTS - remain;
+            const hint = left < MAX_PWD_ATTEMPTS ? '\n（剩余尝试次数：' + left + '）' : '';
+            const password = prompt('🔒 教师管理需要密码才能进入' + hint + '\n\n请输入密码：');
+            if (password === null) return; // 用户取消
+
+            if (password === TEACHER_PASSWORD) {
+                resetFailedAttempts();
+                sessionStorage.setItem('teacherUnlocked', 'yes');
+                renderTeacherPanel();
+                document.getElementById('teacherModal').classList.add('active');
+            } else {
+                const leftAfter = recordFailedAttempt();
+                if (leftAfter <= 0) {
+                    alert('❌ 密码错误，已连续输错 ' + MAX_PWD_ATTEMPTS + ' 次。\n系统已锁定 ' + LOCKOUT_MINUTES + ' 分钟。');
+                } else {
+                    alert('❌ 密码错误！\n还剩 ' + leftAfter + ' 次尝试机会。');
+                }
+            }
         }
 
         // 关闭教师管理
